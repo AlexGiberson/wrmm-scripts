@@ -1,0 +1,96 @@
+Function RoundedSum(rng As Range) As Double
+    Dim cell As Range, total As Double
+    total = 0
+    For Each cell In rng
+        If IsNumeric(cell.Value) Then total = total + Round(cell.Value, 6)
+    Next cell
+    RoundedSum = total
+End Function
+
+Sub CheckCanadaTakeAndUpdate()
+    Const SHEET_NAME As String = "Capped_Credit"
+    Const SOURCE_LABEL As String = "Modified ADDITIONAL CANADIAN TAKE (cms)"
+    Const TARGET_LABEL As String = "Prev Run"
+    Const DIFF_SUM_LABEL As String = "Current vs Prev Run"
+    Const BLOCK_ROWS As Long = 36
+
+    Dim ws As Worksheet
+    Dim outsimWB As Workbook, outidWB As Workbook
+    Dim outsimPath As String, outidPath As String
+    Dim sourceCell As Range, targetCell As Range, diffCell As Range
+    Dim sourceRange As Range, targetRange As Range, diffRange As Range
+    Dim diffSum As Double
+
+    Set ws = ThisWorkbook.Sheets(SHEET_NAME)
+
+    ' === Recalculate by opening outsim.csv ===
+    outsimPath = ThisWorkbook.Path & Application.PathSeparator & "outsim.csv"
+    On Error GoTo CSVOpenError_outsim
+    Set outsimWB = Workbooks.Open(FileName:=outsimPath, ReadOnly:=True)
+    Application.CalculateFullRebuild
+    outsimWB.Close SaveChanges:=False
+    On Error GoTo 0
+
+    ' === Recalculate by opening outid.csv (new) ===
+    outidPath = ThisWorkbook.Path & Application.PathSeparator & "outid.csv"
+    On Error GoTo CSVOpenError_outid
+    Set outidWB = Workbooks.Open(FileName:=outidPath, ReadOnly:=True)
+    Application.CalculateFullRebuild
+    outidWB.Close SaveChanges:=False
+    On Error GoTo 0
+
+    ' Source block
+    Set sourceCell = FindCell(ws, SOURCE_LABEL)
+    If sourceCell Is Nothing Then
+        MsgBox "Could not find source label: " & SOURCE_LABEL, vbCritical: Exit Sub
+    End If
+    Set sourceRange = ws.Range( _
+        sourceCell.Offset(1, 0), _
+        sourceCell.Offset(1 + BLOCK_ROWS - 1, sourceCell.CurrentRegion.Columns.Count - 1) _
+    )
+
+    ' Target block
+    Set targetCell = FindCell(ws, TARGET_LABEL)
+    If targetCell Is Nothing Then
+        MsgBox "Could not find target label: " & TARGET_LABEL, vbCritical: Exit Sub
+    End If
+    Set targetRange = ws.Range( _
+        targetCell.Offset(1, 0), _
+        targetCell.Offset(1 + BLOCK_ROWS - 1, sourceRange.Columns.Count - 1) _
+    )
+
+    ' Difference column (entire block beneath the label)
+    Set diffCell = FindCell(ws, DIFF_SUM_LABEL)
+    If diffCell Is Nothing Then
+        MsgBox "Could not find difference label: " & DIFF_SUM_LABEL, vbCritical: Exit Sub
+    End If
+    Set diffRange = ws.Range(diffCell.Offset(2, 1), diffCell.Offset(2 + BLOCK_ROWS - 1, 1))
+
+    diffSum = RoundedSum(diffRange)
+
+    If diffSum <> 0 Then
+        targetRange.Value = sourceRange.Value
+        ThisWorkbook.Save
+        MsgBox "Differences found (" & diffSum & ") – data copied and file saved.", vbInformation
+    Else
+        MsgBox "No difference – solution found. No changes made.", vbInformation
+    End If
+    Exit Sub
+
+CSVOpenError_outsim:
+    MsgBox "Could not open outsim.csv in path: " & vbCrLf & outsimPath, vbCritical
+    Exit Sub
+
+CSVOpenError_outid:
+    MsgBox "Could not open outid.csv in path: " & vbCrLf & outidPath, vbCritical
+    Exit Sub
+End Sub
+
+Function FindCell(ws As Worksheet, searchText As String) As Range
+    Dim cell As Range
+    Set cell = ws.Cells.Find(What:=searchText, LookIn:=xlFormulas, LookAt:=xlWhole, MatchCase:=False)
+    If cell Is Nothing Then
+        Set cell = ws.Cells.Find(What:=searchText, LookIn:=xlValues, LookAt:=xlWhole, MatchCase:=False)
+    End If
+    Set FindCell = cell
+End Function
